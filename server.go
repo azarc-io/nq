@@ -16,7 +16,6 @@ import (
 )
 
 // Generates a server name, combination of hostname and process id
-//
 func GenerateServerName() string {
 	host, err := os.Hostname()
 	if err != nil {
@@ -185,7 +184,7 @@ func NewServer(natsConfig NatsClientOpt, servCfg Config, opts ...ClientConnectio
 
 	if servCfg.ServerName == "" {
 		servCfg.ServerName = GenerateServerName()
-		logger.Warnf("Empty server name replace with to %s", servCfg.ServerName)
+		logger.Warnf("empty server name replace with to %s", servCfg.ServerName)
 	}
 
 	opt, err := withDefaultClientOptions(opts...)
@@ -246,7 +245,7 @@ func (srv *Server) start() error {
 	case srvStateActive:
 		return fmt.Errorf("nq: the server is already running")
 	case srvStateStopped:
-		return fmt.Errorf("nq: the server is in the stopped state. Waiting for shutdown")
+		return fmt.Errorf("nq: the server is in the stopped state. waiting for shutdown")
 	case srvStateClosed:
 		return ErrServerClosed
 	}
@@ -266,7 +265,7 @@ func (srv *Server) Start() error {
 	if err := srv.start(); err != nil {
 		return err
 	}
-	srv.logger.Infof("Started Server@%s", srv.name)
+	srv.logger.Infof("started server@%s", srv.name)
 	srv.processor.start(&srv.wg)
 	return nil
 }
@@ -276,7 +275,7 @@ func (srv *Server) listenForDisconnect() {
 	go func() {
 		for {
 			<-srv.natsConnectionClosed
-			srv.logger.Error("Disconnected from nats, shutting down")
+			srv.logger.Error("disconnected from nats, shutting down")
 			srv.signals <- unix.SIGINT
 			return
 		}
@@ -288,7 +287,7 @@ func (srv *Server) listenForDisconnect() {
 // SIGTERM and SIGINT will signal the process to exit.
 // SIGTSTP will signal the process to stop processing new tasks.
 func (srv *Server) waitForSignals(sigs chan os.Signal) {
-	srv.logger.Infof("[*] Listening for messages")
+	srv.logger.Infof("[*] listening for messages")
 	srv.logger.Info("cmd/ctrl + c to terminate the process")
 	srv.logger.Info("cmd/ctrl + z to stop processing new tasks")
 
@@ -334,12 +333,12 @@ func (srv *Server) Shutdown() {
 	srv.state.value = srvStateClosed
 	srv.state.mu.Unlock()
 
-	srv.logger.Info("Starting graceful shutdown")
+	srv.logger.Info("starting graceful shutdown")
 	srv.processor.shutdown()
 
 	srv.wg.Wait()
 
-	srv.logger.Info("Exiting")
+	srv.logger.Info("exiting")
 }
 
 // Stop signals the server to stop pulling new tasks off queues.
@@ -357,7 +356,7 @@ func (srv *Server) Stop() {
 	srv.state.value = srvStateStopped
 	srv.state.mu.Unlock()
 
-	srv.logger.Info("Stopping processor")
+	srv.logger.Info("stopping processor")
 	srv.processor.stop()
-	srv.logger.Info("Processor stopped")
+	srv.logger.Info("processor stopped")
 }
