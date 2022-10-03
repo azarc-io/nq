@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"time"
 )
 
 // Signature for function executed by a worker.
@@ -100,23 +101,24 @@ func (p *PublishClient) publishToSubject(task *Task, opts ...TaskOption) (*TaskM
 	if opt.timeout != 0 {
 		timeout = opt.timeout
 	}
-
 	processAt := noProcessAt
 	if !opt.processAt.IsZero() {
 		processAt = opt.processAt
 	}
+
 	taskMessage := &TaskMessage{
 		Sequence:     0, // default value
 		ID:           opt.taskID,
 		Queue:        task.queue,
 		Payload:      task.payload,
 		Deadline:     deadline.Unix(),
-		ProcessAt:    processAt.UTC(),
 		CurrentRetry: 0,
 		MaxRetry:     opt.retry,
 		Timeout:      int64(timeout.Seconds()),
 		Status:       Pending,
 		CompletedAt:  0,
+		ProcessAt:    processAt.UnixMicro(),
+		Timestamp:    time.Now().UnixMicro(),
 	}
 	return p.publishMessage(taskMessage)
 }

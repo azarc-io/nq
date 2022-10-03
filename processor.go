@@ -342,11 +342,16 @@ func (p *manager) exec(queueName string) {
 					}
 
 					// is this a future task?
-					if msg.ProcessAt != noProcessAt {
-						pat := msg.ProcessAt // time.Unix(int64(msg.ProcessAt), 0)
-						now := time.Now().UTC()
+					if msg.ProcessAt != 0 {
+						now := time.Now()
+						ts := time.UnixMicro(msg.Timestamp)
+						pat := time.UnixMicro(msg.ProcessAt)
+						nackDelay := pat.Sub(now)
+						latency := now.Sub(ts)
+
 						// if the ProcessAt time is in the future nack with delay
-						if pat.After(now) {
+						if pat.After(now.Add(latency)) {
+							p.logger.Debugf("reschedule nackDelay: %v latency: %v", nackDelay, latency)
 							msg.nakWithDelayFN(pat.Sub(now))
 							return
 						}
@@ -386,7 +391,6 @@ func (p *manager) exec(queueName string) {
 						}
 					}
 				}
-
 			}()
 		}
 	}
@@ -407,7 +411,9 @@ func (p *manager) pull(ctx context.Context, subject string, number int) ([]*Task
 		for _, msg := range msgs {
 			tp, err := payloadFromNatsMessage(msg)
 			if err != nil {
-				p.logger.Errorf("invalid task payload")
+				p.logger.Errorf("invalid task payload: %s", err.Error())
+				msg.Ack()
+				continue
 			} else {
 				taskPayloads = append(taskPayloads, tp)
 			}
@@ -476,7 +482,7 @@ func (p *manager) handleSucceededMessage(ctx context.Context, msg *TaskMessage) 
 	} else {
 		p.rw.Set(msg.ID, d)
 	}
-	p.logger.Debugf("processed subject=%s task=%s", msg.Queue, msg.ID)
+	p.logger.Debug("processed subject=%s task=%s", msg.Queue, msg.ID)
 }
 
 func (p *manager) handleFailedMessage(ctx context.Context, msg *TaskMessage, err error) {
@@ -536,7 +542,7 @@ func (p *manager) shutdown() {
 func payloadFromNatsMessage(msg *nats.Msg) (*TaskMessage, error) {
 	var tp TaskMessage
 	if err := json.Unmarshal(msg.Data, &tp); err != nil || tp.ID == "" {
-		return nil, ErrInvalidTaskPayload
+		return nil, err
 	}
 
 	tp.ackFN = msg.Ack

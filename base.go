@@ -85,7 +85,7 @@ type TaskMessage struct {
 
 	// ProcessAt the date/time the task should be processed at.
 	// Use zero to indicate task is not a future task
-	ProcessAt time.Time
+	ProcessAt int64
 
 	// CompletedAt is the time the task was processed successfully in Unix time,
 	// the number of seconds elapsed since January 1, 1970 UTC.
@@ -93,8 +93,6 @@ type TaskMessage struct {
 	// Negative value indicated cancelled.
 	// Use zero to indicate no value.
 	CompletedAt int64
-	// PubAck is an ack received after successfully publishing a message.
-	// NatsAck nats.PubAck
 
 	// Current retry count
 	//
@@ -109,6 +107,9 @@ type TaskMessage struct {
 
 	// nakWithDelayFN nack the message with a replay delay
 	nakWithDelayFN func(delay time.Duration, opts ...nats.AckOpt) error
+
+	// Timestamp Unix timestamp of when the task was published
+	Timestamp int64
 }
 
 func (msg *TaskMessage) GetStatus() string {
