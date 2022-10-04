@@ -19,7 +19,7 @@ import (
 )
 
 type CancellationStore struct {
-	// mu          sync.Mutex
+	sync.Mutex
 	cancelFuncs map[string]context.CancelFunc
 }
 
@@ -154,6 +154,8 @@ func NewCancelations() CancellationStore {
 
 // Add adds a new cancel func to the collection.
 func (c *CancellationStore) Add(id string, fn context.CancelFunc) {
+	c.Lock()
+	defer c.Unlock()
 	c.cancelFuncs[id] = fn
 }
 
