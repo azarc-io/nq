@@ -1,6 +1,7 @@
 package nq
 
 import (
+	ilog "github.com/dumbmachine/nq/internal/log"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -25,6 +26,16 @@ type NatsClientOpt struct {
 	//
 	// Defaults to 100
 	MaxReconnects int
+
+	// Logger specifies the logger used by the server instance.
+	//
+	// go's logger is used by default.
+	Logger ilog.Base
+
+	// LogLevel specifies the minimum log level to enable.
+	//
+	// InfoLevel is used by default.
+	LogLevel LogLevel
 }
 
 type CancelPayload string

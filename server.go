@@ -197,7 +197,7 @@ func NewServer(natsConfig NatsClientOpt, servCfg Config, opts ...ClientConnectio
 	forceReRegister := make(chan struct{})
 	sigs := make(chan os.Signal, 1)
 
-	broker, err := NewNatsBroker(natsConfig, opt, natsConnectionClosed, forceReRegister)
+	broker, err := NewNatsBroker(natsConfig, opt, natsConnectionClosed, forceReRegister, logger)
 	if err != nil {
 		panic(err)
 	}
@@ -234,7 +234,7 @@ func NewServer(natsConfig NatsClientOpt, servCfg Config, opts ...ClientConnectio
 // Subscribe to a stream
 func (srv *Server) Register(qname string, fn ProcessingFunc) {
 	q := NewQueue(qname)
-	srv.processor.broker.ConnectoQueue(q)
+	srv.processor.broker.ConnectToQueue(q)
 	srv.processor.register(q, fn)
 }
 

@@ -3,6 +3,7 @@ package nq
 import (
 	"context"
 	"encoding/json"
+	ilog "github.com/dumbmachine/nq/internal/log"
 	"log"
 	"time"
 )
@@ -48,7 +49,13 @@ func NewPublishClient(config NatsClientOpt, opts ...ClientConnectionOption) *Pub
 		panic(err)
 	}
 
-	broker, err := NewNatsBroker(config, opt, make(chan struct{}), make(chan struct{}))
+	lvl := config.LogLevel
+	if lvl == level_unspecified {
+		lvl = InfoLevel
+	}
+	logger := ilog.NewLogger(config.Logger, ilog.Level(lvl-1)) // use toInternalLogLevel instead
+
+	broker, err := NewNatsBroker(config, opt, make(chan struct{}), make(chan struct{}), logger)
 	if err != nil {
 		panic(err)
 	}
@@ -140,7 +147,7 @@ func (p *PublishClient) GetUpdates(taskID string) (chan *TaskMessage, error) {
 // Returns TaskMessage and nil error is enqueued successfully, else non-nill error
 func (p *PublishClient) Enqueue(task *Task, opts ...TaskOption) (*TaskMessage, error) {
 	q := NewQueue(task.queue)
-	p.broker.ConnectoQueue(q)
+	p.broker.ConnectToQueue(q)
 
 	return p.publishToSubject(task, opts...)
 }

@@ -130,7 +130,7 @@ func (p *manager) listenForReRegister(prefix string) {
 			for _, subj := range p.pullStore.pullSubscriptions {
 				if !p.broker.isStreamExists(subj.Q.stream) {
 					p.logger.Warnf("stream=%s re-registering", subj.Q.stream)
-					p.broker.ConnectoQueue(subj.Q)
+					p.broker.ConnectToQueue(subj.Q)
 					p.register(subj.Q, subj.Fn)
 				}
 			}
