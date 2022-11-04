@@ -161,6 +161,8 @@ func (c *CancellationStore) Add(id string, fn context.CancelFunc) {
 
 // Delete deletes a cancel func from the collection given an id.
 func (c *CancellationStore) Delete(id string) {
+	c.Lock()
+	defer c.Unlock()
 	delete(c.cancelFuncs, id)
 }
 
