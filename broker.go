@@ -2,14 +2,14 @@ package nq
 
 import (
 	"fmt"
-	"log"
-
+	ilog "github.com/dumbmachine/nq/internal/log"
 	"github.com/nats-io/nats.go"
 )
 
 type NatsBroker struct {
-	ns *nats.Conn
-	js nats.JetStreamContext
+	ns     *nats.Conn
+	js     nats.JetStreamContext
+	logger *ilog.Logger
 }
 
 func (n *NatsBroker) Ping() error {
@@ -104,20 +104,19 @@ func (n *NatsBroker) createStream(streamName, subject string, policy nats.Retent
 	return nil
 }
 
-// Temporary function that fulfill statistic demands from nq-cli
+// Stats Temporary function that fulfill statistic demands from nq-cli
 func (n *NatsBroker) Stats(q *Queue) error {
 	jinfo, err := n.js.StreamInfo(q.stream)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("queue: %s | MessagesPending: %d | Size: %d Bytes \n", q.stream, jinfo.State.Msgs, jinfo.State.Bytes)
+	n.logger.Infof("stats [queue]: %s | [pending]: %d | [size]: %d Bytes \n", q.stream, jinfo.State.Msgs, jinfo.State.Bytes)
 	return nil
 }
 
-// Creates queue stream if not exists
-//
+// ConnectToQueue Creates queue stream if not exists
 // Also create underlying nets-stream for queue and cancel-queue
-func (n *NatsBroker) ConnectoQueue(q *Queue) error {
+func (n *NatsBroker) ConnectToQueue(q *Queue) error {
 	// create task-stream
 	if ok := n.isStreamExists(q.stream); !ok {
 		// if stream does not exist, create
@@ -126,29 +125,28 @@ func (n *NatsBroker) ConnectoQueue(q *Queue) error {
 			// todo
 			panic(err)
 		}
-		log.Printf("Created queue=%s", q.stream)
+		n.logger.Infof("created [queue]: %s", q.stream)
 	}
 	if ok := n.isStreamExists(q.cancelStream); !ok {
 		// create cancel stream for task-stream
 		if err := n.createStream(q.cancelStream, q.cancelSubject, nats.InterestPolicy); err != nil {
 			panic(err)
 		}
-		log.Printf("Created cancel queue=%s", q.stream)
+		n.logger.Infof("created cancel [queue]: %s", q.stream)
 	}
 	return nil
 }
 
-// TODO: Allow users to specify `forceReRegister` as a boolean
 // NewNatsBroker returns a new instance of NatsBroker.
-func NewNatsBroker(conf NatsClientOpt, opt ClientOption, natsConnectionClosed chan struct{}, forceReRegister chan struct{}) (*NatsBroker, error) {
+// TODO: Allow users to specify `forceReRegister` as a boolean
+func NewNatsBroker(conf NatsClientOpt, opt ClientOption, natsConnectionClosed chan struct{}, forceReRegister chan struct{}, logger *ilog.Logger) (*NatsBroker, error) {
 	opt.NatsOption = append(opt.NatsOption,
 		nats.ReconnectWait(conf.ReconnectWait), nats.MaxReconnects(conf.MaxReconnects),
 		// nats.ReconnectWait(time.Second), nats.MaxReconnects(100),
 		natsDisconnectHandler(opt.ShutdownOnNatsDisconnect, natsConnectionClosed),
 		nats.ReconnectHandler(func(nc *nats.Conn) {
-			// TODO: Use a logger here
 			if !opt.ShutdownOnNatsDisconnect {
-				log.Println("reconnection found", nc.ConnectedUrl())
+				logger.Info("reconnection found", nc.ConnectedUrl())
 				forceReRegister <- struct{}{}
 			}
 		}),
@@ -164,7 +162,7 @@ func NewNatsBroker(conf NatsClientOpt, opt ClientOption, natsConnectionClosed ch
 		if js, err := nc.JetStream(); err != nil {
 			return nil, err
 		} else {
-			return &NatsBroker{nc, js}, err
+			return &NatsBroker{nc, js, logger}, err
 		}
 	}
 }

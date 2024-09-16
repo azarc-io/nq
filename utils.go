@@ -47,8 +47,6 @@ func CancelStreamNameToStreamName(stream, subject string) string {
 	return strings.Replace(subject, "cancel-", "", 1)
 }
 
-//
-//
 // Internal `Queue`s represent an abstraction over a nats stream -> subject
 type Queue struct {
 	stream        string
@@ -61,7 +59,7 @@ func NewQueue(name string) *Queue {
 	return &Queue{
 		stream:        name,
 		subject:       fmt.Sprintf("%s.task", name),
-		cancelStream:  fmt.Sprintf("%s/cancel", name),
+		cancelStream:  fmt.Sprintf("%s_cancel", name),
 		cancelSubject: fmt.Sprintf("%s.cancel", name),
 	}
 }

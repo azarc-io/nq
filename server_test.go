@@ -3,6 +3,9 @@ package nq
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -195,4 +198,58 @@ func TestServerDie(t *testing.T) {
 		}
 	}
 
+}
+
+func TestProcessAtOptShouldProcessAtOrAfterTime(t *testing.T) {
+	s := RunServerOnPort(TEST_PORT)
+	tmp := filepath.Join(os.TempDir(), server.JetStreamStoreDir)
+	defer os.RemoveAll(tmp)
+	s.EnableJetStream(&server.JetStreamConfig{
+		StoreDir: tmp,
+	})
+	s.Start()
+
+	time.Sleep(time.Second)
+
+	srv := NewServer(NatsClientOpt{
+		Addr:          URL,
+		ReconnectWait: time.Second * 2,
+		MaxReconnects: 100,
+	}, Config{
+		ServerName:  GenerateServerName(),
+		Concurrency: 1,
+		LogLevel:    InfoLevel,
+	})
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
+	srv.Register("test-qu", func(ctx context.Context, tp *TaskPayload) error {
+		wg.Done()
+		// no-op task function
+		return nil
+	})
+
+	srv.Start()
+
+	client := NewPublishClient(NatsClientOpt{
+		Addr: URL,
+	})
+	defer client.Close()
+
+	ranAt := time.Now()
+	task1SchdAt := ranAt.Add(time.Second * 1)
+
+	task1 := NewTask("test-qu", []byte{}, ProcessAt(task1SchdAt))
+	client.Enqueue(task1)
+
+	wg.Wait()
+
+	fmt.Println(fmt.Sprintf("task executed after: %v", time.Since(ranAt)))
+
+	if time.Since(ranAt) < 1 {
+		panic("should have been executed after 1 second")
+	}
+
+	s.Shutdown()
 }

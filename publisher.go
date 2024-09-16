@@ -3,7 +3,9 @@ package nq
 import (
 	"context"
 	"encoding/json"
+	ilog "github.com/dumbmachine/nq/internal/log"
 	"log"
+	"time"
 )
 
 // Signature for function executed by a worker.
@@ -41,14 +43,19 @@ type PublishClient struct {
 }
 
 // NewPublishClient returns a new Client instance, given nats connection options, to interact with nq tasks
-//
 func NewPublishClient(config NatsClientOpt, opts ...ClientConnectionOption) *PublishClient {
 	opt, err := withDefaultClientOptions(opts...)
 	if err != nil {
 		panic(err)
 	}
 
-	broker, err := NewNatsBroker(config, opt, make(chan struct{}), make(chan struct{}))
+	lvl := config.LogLevel
+	if lvl == level_unspecified {
+		lvl = InfoLevel
+	}
+	logger := ilog.NewLogger(config.Logger, ilog.Level(lvl-1)) // use toInternalLogLevel instead
+
+	broker, err := NewNatsBroker(config, opt, make(chan struct{}), make(chan struct{}), logger)
 	if err != nil {
 		panic(err)
 	}
@@ -101,6 +108,11 @@ func (p *PublishClient) publishToSubject(task *Task, opts ...TaskOption) (*TaskM
 	if opt.timeout != 0 {
 		timeout = opt.timeout
 	}
+	processAt := noProcessAt
+	if !opt.processAt.IsZero() {
+		processAt = opt.processAt
+	}
+
 	taskMessage := &TaskMessage{
 		Sequence:     0, // default value
 		ID:           opt.taskID,
@@ -112,6 +124,8 @@ func (p *PublishClient) publishToSubject(task *Task, opts ...TaskOption) (*TaskM
 		Timeout:      int64(timeout.Seconds()),
 		Status:       Pending,
 		CompletedAt:  0,
+		ProcessAt:    processAt.UnixMicro(),
+		Timestamp:    time.Now().UnixMicro(),
 	}
 	return p.publishMessage(taskMessage)
 }
@@ -133,7 +147,7 @@ func (p *PublishClient) GetUpdates(taskID string) (chan *TaskMessage, error) {
 // Returns TaskMessage and nil error is enqueued successfully, else non-nill error
 func (p *PublishClient) Enqueue(task *Task, opts ...TaskOption) (*TaskMessage, error) {
 	q := NewQueue(task.queue)
-	p.broker.ConnectoQueue(q)
+	p.broker.ConnectToQueue(q)
 
 	return p.publishToSubject(task, opts...)
 }
@@ -189,7 +203,6 @@ func (p *PublishClient) DeleteQueue(qname string) {
 }
 
 // Fetch fetches TaskMessage for given task
-//
 func (p *PublishClient) Fetch(id string) (*TaskMessage, error) {
 	return p.kv.Get(id)
 }

@@ -19,7 +19,7 @@ import (
 )
 
 type CancellationStore struct {
-	// mu          sync.Mutex
+	sync.Mutex
 	cancelFuncs map[string]context.CancelFunc
 }
 
@@ -125,16 +125,16 @@ func (p *manager) listenForReRegister(prefix string) {
 	go func() {
 		for {
 			<-p.forceReRegister
-			p.logger.Info("Re-registering subscriptions to nats-server")
+			p.logger.Info("re-registering subscriptions to nats-server")
 			// TODO: validate re-registration flow
 			for _, subj := range p.pullStore.pullSubscriptions {
 				if !p.broker.isStreamExists(subj.Q.stream) {
 					p.logger.Warnf("stream=%s re-registering", subj.Q.stream)
-					p.broker.ConnectoQueue(subj.Q)
+					p.broker.ConnectToQueue(subj.Q)
 					p.register(subj.Q, subj.Fn)
 				}
 			}
-			p.logger.Info("Registration successful", p.broker.ns.Servers())
+			p.logger.Info("registration successful", p.broker.ns.Servers())
 		}
 	}()
 }
@@ -154,11 +154,15 @@ func NewCancelations() CancellationStore {
 
 // Add adds a new cancel func to the collection.
 func (c *CancellationStore) Add(id string, fn context.CancelFunc) {
+	c.Lock()
+	defer c.Unlock()
 	c.cancelFuncs[id] = fn
 }
 
 // Delete deletes a cancel func from the collection given an id.
 func (c *CancellationStore) Delete(id string) {
+	c.Lock()
+	defer c.Unlock()
 	delete(c.cancelFuncs, id)
 }
 
@@ -195,7 +199,7 @@ func (p *manager) register_cancel_for(q *Queue) {
 
 		if cancelFN, ok := p.cancellations.cancelFuncs[cancelData.ID]; ok {
 			cancelFN()
-			p.logger.Infof("Successfully cancelled: %s/%s", q.stream, cancelData.ID)
+			p.logger.Infof("successfully cancelled: %s/%s", q.stream, cancelData.ID)
 		} else {
 			// // Cancel fn not found for this task
 			// // Check task status
@@ -245,7 +249,7 @@ func (p *manager) register(q *Queue, fn ProcessingFunc) {
 		panic(fmt.Sprintf("nq: registration of queue=%s failed. (%s)", q.stream, err))
 	} else {
 		p.register_cancel_for(q)
-		p.logger.Infof("Registered queue=%s", q.stream)
+		p.logger.Infof("registered task queue=%s", q.stream)
 		p.pullStore.pullSubscriptions[q.stream] = PullAction{
 			Q:            q,
 			Subscription: sub,
@@ -341,9 +345,25 @@ func (p *manager) exec(queueName string) {
 					default:
 					}
 
+					// is this a future task?
+					if msg.ProcessAt != 0 {
+						now := time.Now()
+						ts := time.UnixMicro(msg.Timestamp)
+						pat := time.UnixMicro(msg.ProcessAt)
+						nackDelay := pat.Sub(now)
+						latency := now.Sub(ts)
+
+						// if the ProcessAt time is in the future nack with delay
+						if pat.After(now.Add(latency)) {
+							p.logger.Debugf("reschedule nackDelay: %v latency: %v", nackDelay, latency)
+							msg.nakWithDelayFN(pat.Sub(now))
+							return
+						}
+					}
+
 					resCh := make(chan error, 1)
 					go func() {
-						p.logger.Infof("Received subject=%s task=%s", queueName, msg.ID)
+						p.logger.Debug("received subject=%s task=%s", queueName, msg.ID)
 						msg.Status = Processing
 						x, _ := EncodeTMToJSON(msg)
 						p.rw.Set(msg.ID, x)
@@ -355,7 +375,7 @@ func (p *manager) exec(queueName string) {
 					case <-p.abort:
 						// time is up, quit this worker goroutine.
 						// re-publish of message is not required as the msg was not-acked and available to other active workers
-						p.logger.Warnf("Quitting worker. Abandoning task=%s", msg.ID)
+						p.logger.Warnf("quitting worker. Abandoning task=%s", msg.ID)
 						return
 					case resErr := <-resCh:
 						{
@@ -375,7 +395,6 @@ func (p *manager) exec(queueName string) {
 						}
 					}
 				}
-
 			}()
 		}
 	}
@@ -396,7 +415,9 @@ func (p *manager) pull(ctx context.Context, subject string, number int) ([]*Task
 		for _, msg := range msgs {
 			tp, err := payloadFromNatsMessage(msg)
 			if err != nil {
-				p.logger.Errorf("invalid task payload")
+				p.logger.Errorf("invalid task payload: %s", err.Error())
+				msg.Ack()
+				continue
 			} else {
 				taskPayloads = append(taskPayloads, tp)
 			}
@@ -408,12 +429,12 @@ func (p *manager) pull(ctx context.Context, subject string, number int) ([]*Task
 func (p *manager) start(wg *sync.WaitGroup) {
 	wg.Add(1)
 	go func() {
-		p.logger.Debug("Starting Manager")
+		p.logger.Debug("starting Manager")
 		defer wg.Done()
 		for {
 			select {
 			case <-p.done:
-				p.logger.Debug("Manager done")
+				p.logger.Debug("manager done")
 				return
 			default:
 				// sequentially fetch messages from all queues
@@ -431,12 +452,12 @@ func (p *manager) start(wg *sync.WaitGroup) {
 func (p *manager) stop() {
 	for _, subj := range p.pullStore.pullSubscriptions {
 		q := NewQueue(subj.Subscription.Subject)
-		p.logger.Debugf("Cleaning subscription queue=%s", q.subject)
+		p.logger.Debugf("cleaning subscription queue=%s", q.subject)
 		subj.Subscription.Unsubscribe()
 		p.broker.js.DeleteConsumer(q.stream, "MONITOR")
 	}
 	p.once.Do(func() {
-		p.logger.Debug("Processor shutting down...")
+		p.logger.Debug("processor shutting down...")
 		// Unblock if processor is waiting for sema token.
 		close(p.quit)
 		// Signal the processor goroutine to stop processing tasks
@@ -465,7 +486,7 @@ func (p *manager) handleSucceededMessage(ctx context.Context, msg *TaskMessage) 
 	} else {
 		p.rw.Set(msg.ID, d)
 	}
-	p.logger.Infof("processed subject=%s task=%s", msg.Queue, msg.ID)
+	p.logger.Debug("processed subject=%s task=%s", msg.Queue, msg.ID)
 }
 
 func (p *manager) handleFailedMessage(ctx context.Context, msg *TaskMessage, err error) {
@@ -487,14 +508,14 @@ func (p *manager) handleFailedMessage(ctx context.Context, msg *TaskMessage, err
 	} else {
 		// re-submit task for a ret
 		if msg.CurrentRetry == msg.MaxRetry {
-			p.logger.Infof("Retry limit reached task=%s. Marked as status=%s", msg.ID, "failed")
+			p.logger.Infof("retry limit reached task=%s. Marked as status=%s", msg.ID, "failed")
 			msg.Status = Failed
 			x, _ := EncodeTMToJSON(msg)
 			p.rw.Set(msg.ID, x)
 			msg.ackFN()
 		} else {
 			msg.CurrentRetry += 1
-			p.logger.Infof("Retrying task=%s", msg.ID)
+			p.logger.Infof("retrying task=%s", msg.ID)
 			p.requeue(msg)
 		}
 	}
@@ -514,20 +535,21 @@ func (p *manager) shutdown() {
 
 	time.AfterFunc(p.shutdownTimeout, func() { close(p.abort) })
 
-	p.logger.Info("Waiting for all workers to finish...")
+	p.logger.Info("waiting for all workers to finish...")
 	// block until all workers have released the token
 	for i := 0; i < cap(p.sema); i++ {
 		p.sema <- struct{}{}
 	}
-	p.logger.Info("All workers have finished")
+	p.logger.Info("all workers have finished")
 }
 
 func payloadFromNatsMessage(msg *nats.Msg) (*TaskMessage, error) {
 	var tp TaskMessage
 	if err := json.Unmarshal(msg.Data, &tp); err != nil || tp.ID == "" {
-		return nil, ErrInvalidTaskPayload
+		return nil, err
 	}
 
 	tp.ackFN = msg.Ack
+	tp.nakWithDelayFN = msg.NakWithDelay
 	return &tp, nil
 }

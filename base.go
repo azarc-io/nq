@@ -1,6 +1,7 @@
 package nq
 
 import (
+	ilog "github.com/dumbmachine/nq/internal/log"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -25,6 +26,16 @@ type NatsClientOpt struct {
 	//
 	// Defaults to 100
 	MaxReconnects int
+
+	// Logger specifies the logger used by the server instance.
+	//
+	// go's logger is used by default.
+	Logger ilog.Base
+
+	// LogLevel specifies the minimum log level to enable.
+	//
+	// InfoLevel is used by default.
+	LogLevel LogLevel
 }
 
 type CancelPayload string
@@ -83,14 +94,16 @@ type TaskMessage struct {
 	// Use zero to indicate no deadline.
 	Deadline int64
 
+	// ProcessAt the date/time the task should be processed at.
+	// Use zero to indicate task is not a future task
+	ProcessAt int64
+
 	// CompletedAt is the time the task was processed successfully in Unix time,
 	// the number of seconds elapsed since January 1, 1970 UTC.
 	//
 	// Negative value indicated cancelled.
 	// Use zero to indicate no value.
 	CompletedAt int64
-	// PubAck is an ack received after successfully publishing a message.
-	// NatsAck nats.PubAck
 
 	// Current retry count
 	//
@@ -102,6 +115,12 @@ type TaskMessage struct {
 
 	// Function to acknowledge this TaskMessage when received as a subscription
 	ackFN func(opts ...nats.AckOpt) error
+
+	// nakWithDelayFN nack the message with a replay delay
+	nakWithDelayFN func(delay time.Duration, opts ...nats.AckOpt) error
+
+	// Timestamp Unix timestamp of when the task was published
+	Timestamp int64
 }
 
 func (msg *TaskMessage) GetStatus() string {
